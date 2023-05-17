@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+
+#  Copyright (c) 2023. IPCRC, Lab. Jiangnig Wei
+#  All rights reserved
+
 from __future__ import print_function
 import os
 import time
@@ -21,7 +25,6 @@ from torch.optim.lr_scheduler import MultiStepLR
 import apex
 
 from utils import count_params, import_class
-
 
 
 def init_seed(seed):
@@ -390,7 +393,8 @@ class Processor():
                 dataset=Feeder(**self.arg.train_feeder_args),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
-                num_workers=self.arg.num_worker,
+                # num_workers=self.arg.num_worker,
+                num_workers=0,
                 drop_last=True,
                 worker_init_fn=worker_seed_fn)
 
@@ -398,7 +402,8 @@ class Processor():
             dataset=Feeder(**self.arg.test_feeder_args),
             batch_size=self.arg.test_batch_size,
             shuffle=False,
-            num_workers=self.arg.num_worker,
+            # num_workers=self.arg.num_worker,
+            num_workers=0,
             drop_last=False,
             worker_init_fn=worker_seed_fn)
 
@@ -544,7 +549,8 @@ class Processor():
 
         mean_loss = np.mean(loss_values)
         num_splits = self.arg.batch_size // self.arg.forward_batch_size
-        self.print_log(f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
+        self.print_log(
+            f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
 
         # PyTorch > 1.2.0: update LR scheduler here with `.step()`
@@ -684,7 +690,7 @@ def main():
     p = parser.parse_args()
     if p.config is not None:
         with open(p.config, 'r') as f:
-            default_arg = yaml.load(f)
+            default_arg = yaml.safe_load(f)
         key = vars(p).keys()
         for k in default_arg.keys():
             if k not in key:

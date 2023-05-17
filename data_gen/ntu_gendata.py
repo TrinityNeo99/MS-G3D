@@ -1,4 +1,8 @@
+#  Copyright (c) 2023. IPCRC, Lab. Jiangnig Wei
+#  All rights reserved
+
 import sys
+
 sys.path.extend(['../'])
 
 import pickle
@@ -146,13 +150,15 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
 
     print(f"### DONE GENERATION: benchmark {benchmark}, part {part}.", flush=True)
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')
-    parser.add_argument('--data_path', default='../data/nturgbd_raw/nturgb+d_skeletons/')
+    parser.add_argument('--data_path', default=r"F:\opensource-dataset\NTU_RGBD\nturgbd_skeletons_selected")
     parser.add_argument('--ignored_sample_path',
                         default='../data/nturgbd_raw/NTU_RGBD_samples_with_missing_skeletons.txt')
     parser.add_argument('--out_folder', default='../data/ntu/')
-    parser.add_argument('--n_cores', default=1, type=int, help='Number of cores to run data generation by multiprocessing.')
+    parser.add_argument('--n_cores', default=1, type=int,
+                        help='Number of cores to run data generation by multiprocessing.')
 
     benchmark = ['xsub', 'xview']
     part = ['train', 'val']
@@ -164,7 +170,7 @@ if __name__ == '__main__':
             out_path = os.path.join(arg.out_folder, b)
             if not os.path.exists(out_path):
                 os.makedirs(out_path)
-            
+
             f_arg = (arg.data_path, out_path, arg.ignored_sample_path, b, p)
             func_args.append(f_arg)
 
@@ -177,10 +183,10 @@ if __name__ == '__main__':
     start_t = time.time()
     pool = multiprocessing.Pool(arg.n_cores)
     pool.starmap(gendata, func_args)
-    
+
     pool.join()
     pool.close()
-    
+
     end_t = time.time()
 
     print(f"@@@ DONE all processing in {end_t - start_t:.2f}s @@@", flush=True)
