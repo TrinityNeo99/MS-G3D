@@ -1,0 +1,26 @@
+# feeder
+feeder: feeders.feeder.Feeder
+test_feeder_args:
+  data_path: ../dataset/2023-3-29_北体合作_示范动作/MS-G3D/pingpong-109-coco/val_data_joint.npy
+  label_path: ../dataset/2023-3-29_北体合作_示范动作/MS-G3D/pingpong-109-coco/val_label.pkl
+  debug: False
+
+# model
+model: model.msg3d.Model
+model_args:
+  num_class: 29
+  num_point: 17
+  num_person: 2
+  num_gcn_scales: 8    # `num_scales` == `K + 1` in the paper
+  num_g3d_scales: 8
+  graph: graph.ntu_rgb_d.AdjMatrixGraph
+
+# test
+phase: test
+device: [ 0, 1,2,3,4,5 ]
+test_batch_size: 32
+weights: ./work_dir/pingpong-109-coco/msg3d_joint/weights/weights-50-300.pt
+
+
+work_dir: ./work_dir/pingpong-109-coco/msg3d_joint_test
+save_score: True
