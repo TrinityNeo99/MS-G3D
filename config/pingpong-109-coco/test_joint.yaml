@@ -13,7 +13,7 @@ model_args:
   num_person: 2
   num_gcn_scales: 8    # `num_scales` == `K + 1` in the paper
   num_g3d_scales: 8
-  graph: graph.pingpong_coco.AdjMatrixGraph
+  graph: graph.pingpong-coco.AdjMatrixGraph
 
 # test
 phase: test
