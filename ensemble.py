@@ -1,3 +1,6 @@
+#  Copyright (c) 2023. IPCRC, Lab. Jiangnig Wei
+#  All rights reserved
+
 import argparse
 import pickle
 import os
@@ -9,7 +12,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset',
                         required=True,
-                        choices={'kinetics', 'ntu/xsub', 'ntu/xview', 'ntu120/xsub', 'ntu120/xset'},
+                        choices={'kinetics', 'ntu/xsub', 'ntu/xview', 'ntu120/xsub', 'ntu120/xset',
+                                 'pingpong-109-coco'},
                         help='the work folder for storing results')
     parser.add_argument('--alpha',
                         default=1,
@@ -24,9 +28,12 @@ if __name__ == "__main__":
     arg = parser.parse_args()
 
     dataset = arg.dataset
-
-    with open('./data/' + dataset + '/val_label.pkl', 'rb') as label:
-        label = np.array(pickle.load(label))
+    try:
+        with open('./data/' + dataset + '/val_label.pkl', 'rb') as label:
+            label = np.array(pickle.load(label))
+    except FileNotFoundError:  # 当没找到ntu数据时，../dataset 找到数据
+        with open('../dataset/2023-3-29_北体合作_示范动作/MS-G3D/' + dataset + '/val_label.pkl', 'rb') as label:
+            label = np.array(pickle.load(label))
 
     with open(os.path.join(arg.joint_dir, 'epoch1_test_score.pkl'), 'rb') as r1:
         r1 = list(pickle.load(r1).items())
