@@ -1,4 +1,8 @@
+#  Copyright (c) 2024. IPCRC, Lab. Jiangnig Wei
+#  All rights reserved
+
 import sys
+
 sys.path.extend(['../'])
 
 import os
@@ -9,7 +13,6 @@ import numpy as np
 from tqdm import tqdm
 
 from data_gen.preprocess import pre_normalization
-
 
 # NTU RGB+D Skeleton 120 Configurations: https://arxiv.org/pdf/1905.04757.pdf
 training_subjects = set([
@@ -114,9 +117,9 @@ def gendata(file_list, out_path, ignored_sample_path, benchmark, part):
         setup_loc = filename.find('S')
         subject_loc = filename.find('P')
         action_loc = filename.find('A')
-        setup_id = int(filename[(setup_loc+1):(setup_loc+4)])
-        subject_id = int(filename[(subject_loc+1):(subject_loc+4)])
-        action_class = int(filename[(action_loc+1):(action_loc+4)])
+        setup_id = int(filename[(setup_loc + 1):(setup_loc + 4)])
+        subject_id = int(filename[(subject_loc + 1):(subject_loc + 4)])
+        action_class = int(filename[(action_loc + 1):(action_loc + 4)])
 
         if benchmark == 'xsub':
             istraining = (subject_id in training_subjects)
@@ -134,7 +137,7 @@ def gendata(file_list, out_path, ignored_sample_path, benchmark, part):
 
         if issample:
             sample_paths.append(path)
-            sample_label.append(action_class - 1)   # to 0-indexed
+            sample_label.append(action_class - 1)  # to 0-indexed
 
     # Save labels
     with open(f'{out_path}/{part}_label.pkl', 'wb') as f:
@@ -157,11 +160,12 @@ def gendata(file_list, out_path, ignored_sample_path, benchmark, part):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D 120 Skeleton Data Extraction')
-    parser.add_argument('--part1-path', default='../data/nturgbd_raw/nturgb+d_skeletons/')
-    parser.add_argument('--part2-path', default='../data/nturgbd_raw/nturgb+d_skeletons120/')
+    parser.add_argument('--part1-path',
+                        default='/groups/public_cluster/home/u2023010384/data/NTU_RGBD/ntu-60/nturgb+d_skeletons/')
+    parser.add_argument('--part2-path', default='/groups/public_cluster/home/u2023010384/data/NTU_RGBD/ntu-120/')
     parser.add_argument('--ignored-sample-path',
                         default='../data/nturgbd_raw/NTU_RGBD120_samples_with_missing_skeletons.txt')
-    parser.add_argument('--out-folder', default='../data/ntu120/')
+    parser.add_argument('--out-folder', default='../../dataset/ntu-120/')
 
     benchmark = ['xsub', 'xset']
     part = ['train', 'val']
@@ -180,4 +184,3 @@ if __name__ == '__main__':
                 os.makedirs(out_path)
             print(b, p)
             gendata(file_list, out_path, arg.ignored_sample_path, benchmark=b, part=p)
-

@@ -1,4 +1,4 @@
-#  Copyright (c) 2023. IPCRC, Lab. Jiangnig Wei
+#  Copyright (c) 2023-2024. IPCRC, Lab. Jiangnig Wei
 #  All rights reserved
 
 import sys
@@ -153,10 +153,11 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NTU-RGB-D Data Converter.')
-    parser.add_argument('--data_path', default=r"F:\opensource-dataset\NTU_RGBD\nturgbd_skeletons_selected")
+    parser.add_argument('--data_path',
+                        default=r"/groups/public_cluster/home/u2023010384/data/NTU_RGBD/ntu-60/nturgb+d_skeletons")
     parser.add_argument('--ignored_sample_path',
                         default='../data/nturgbd_raw/NTU_RGBD_samples_with_missing_skeletons.txt')
-    parser.add_argument('--out_folder', default='../data/ntu/')
+    parser.add_argument('--out_folder', default='../../dataset/ntu-60')
     parser.add_argument('--n_cores', default=1, type=int,
                         help='Number of cores to run data generation by multiprocessing.')
 
