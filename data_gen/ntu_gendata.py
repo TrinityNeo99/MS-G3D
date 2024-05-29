@@ -23,10 +23,15 @@ max_body_true = 2
 max_body_kinect = 4
 
 num_joint = 25
-max_frame = 300
+# max_frame = 300  # org
+max_frame = 256
 
 import numpy as np
 import os
+
+exceed_truncate_frame_stat = {}
+frame_stat = []
+from collections import Counter
 
 
 def read_skeleton_filter(file):
@@ -80,10 +85,15 @@ def get_nonzero_std(s):  # tvc
     return s
 
 
-def read_xyz(file, max_body=4, num_joint=25):
+def read_xyz(file, max_body=4, num_joint=25, truncate_max_frame=300):
     seq_info = read_skeleton_filter(file)
-    data = np.zeros((max_body, seq_info['numFrame'], num_joint, 3))
+    data = np.zeros(
+        (max_body, seq_info['numFrame'] if seq_info['numFrame'] < truncate_max_frame else truncate_max_frame, num_joint,
+         3))
     for n, f in enumerate(seq_info['frameInfo']):
+        if n >= truncate_max_frame:
+            exceed_truncate_frame_stat[os.path.basename(file)] = seq_info['numFrame']
+            break
         for m, b in enumerate(f['bodyInfo']):
             for j, v in enumerate(b['jointInfo']):
                 if m < max_body and j < num_joint:
@@ -142,13 +152,20 @@ def gendata(data_path, out_path, ignored_sample_path=None, benchmark='xview', pa
 
     # Fill in the data tensor `fp` one training example a time
     for i, s in enumerate(tqdm(sample_name)):
-        data = read_xyz(os.path.join(data_path, s), max_body=max_body_kinect, num_joint=num_joint)
-        fp[i, :, 0:data.shape[1], :, :] = data
+        # data = read_xyz(os.path.join(data_path, s), max_body=max_body_kinect, num_joint=num_joint,
+        #                 truncate_max_frame=max_frame)
+        # fp[i, :, 0:data.shape[1], :, :] = data
+        seq_info = read_skeleton_filter(os.path.join(data_path, s))
+        frame_stat.append(seq_info['numFrame'])
+    frame_counter = Counter(frame_stat)
+    print(frame_counter.most_common())
+    exit(9)
 
     fp = pre_normalization(fp)
     np.save('{}/{}_data_joint.npy'.format(out_path, part), fp)
 
     print(f"### DONE GENERATION: benchmark {benchmark}, part {part}.", flush=True)
+    print("the statistic information: ", exceed_truncate_frame_stat)
 
 
 if __name__ == '__main__':
@@ -157,7 +174,7 @@ if __name__ == '__main__':
                         default=r"/groups/public_cluster/home/u2023010384/data/NTU_RGBD/ntu-60/nturgb+d_skeletons")
     parser.add_argument('--ignored_sample_path',
                         default='../data/nturgbd_raw/NTU_RGBD_samples_with_missing_skeletons.txt')
-    parser.add_argument('--out_folder', default='../../dataset/ntu-60')
+    parser.add_argument('--out_folder', default='../../dataset/ntu-60-128')
     parser.add_argument('--n_cores', default=1, type=int,
                         help='Number of cores to run data generation by multiprocessing.')
 
