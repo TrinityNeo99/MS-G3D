@@ -4,7 +4,6 @@
 import sys
 
 sys.path.extend(['../'])
-
 import os
 import pickle
 import argparse
@@ -13,6 +12,10 @@ import numpy as np
 from tqdm import tqdm
 
 from data_gen.preprocess import pre_normalization
+
+exceed_truncate_frame_stat = {}
+frame_stat = []
+from collections import Counter
 
 # NTU RGB+D Skeleton 120 Configurations: https://arxiv.org/pdf/1905.04757.pdf
 training_subjects = set([
@@ -27,7 +30,7 @@ training_setups = set(range(2, 33, 2))
 max_body_true = 2
 max_body_kinect = 4
 num_joint = 25
-max_frame = 300
+max_frame = 256  # org 300
 
 
 def read_skeleton_filter(path):
@@ -81,11 +84,16 @@ def get_nonzero_std(s):  # tvc
     return s
 
 
-def read_xyz(path, max_body=4, num_joint=25):
+def read_xyz(path, max_body=4, num_joint=25, truncate_max_frame=300):
     seq_info = read_skeleton_filter(path)
     # Create single skeleton tensor: (M, T, V, C)
-    data = np.zeros((max_body, seq_info['numFrame'], num_joint, 3))
+    data = np.zeros((
+        max_body, seq_info['numFrame'] if seq_info['numFrame'] < truncate_max_frame else truncate_max_frame,
+        num_joint, 3))
     for n, f in enumerate(seq_info['frameInfo']):
+        if n >= truncate_max_frame:
+            exceed_truncate_frame_stat[os.path.basename(path)] = seq_info['numFrame']
+            break
         for m, b in enumerate(f['bodyInfo']):
             for j, v in enumerate(b['jointInfo']):
                 if m < max_body and j < num_joint:
@@ -148,9 +156,15 @@ def gendata(file_list, out_path, ignored_sample_path, benchmark, part):
 
     # Fill in the data tensor `fp` one training example a time
     for i, s in enumerate(tqdm(sample_paths, dynamic_ncols=True)):
-        data = read_xyz(s, max_body=max_body_kinect, num_joint=num_joint)
+        data = read_xyz(s, max_body=max_body_kinect, num_joint=num_joint, truncate_max_frame=max_frame)
         # Fill (C,T,V,M) to data tensor (N,C,T,V,M)
         fp[i, :, 0:data.shape[1], :, :] = data
+        seq_info = read_skeleton_filter(s)
+        frame_stat.append(seq_info['numFrame'])
+
+    # check max frame setting
+    frame_counter = Counter(frame_stat)
+    print(frame_counter.most_common())
 
     # Perform preprocessing on data tensor
     fp = pre_normalization(fp)
@@ -165,7 +179,7 @@ if __name__ == '__main__':
     parser.add_argument('--part2-path', default='/groups/public_cluster/home/u2023010384/data/NTU_RGBD/ntu-120/')
     parser.add_argument('--ignored-sample-path',
                         default='../data/nturgbd_raw/NTU_RGBD120_samples_with_missing_skeletons.txt')
-    parser.add_argument('--out-folder', default='../../dataset/ntu-120/')
+    parser.add_argument('--out-folder', default='../../dataset/ntu-120-256/')
 
     benchmark = ['xsub', 'xset']
     part = ['train', 'val']
