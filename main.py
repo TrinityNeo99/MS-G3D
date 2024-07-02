@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-#  Copyright (c) 2023. IPCRC, Lab. Jiangnig Wei
+#  Copyright (c) 2023-2024. IPCRC, Lab. Jiangnig Wei
 #  All rights reserved
 
 from __future__ import print_function
@@ -22,7 +22,8 @@ import torch.optim as optim
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import MultiStepLR
-import apex
+# import apex
+import wandb
 
 from utils import count_params, import_class
 
@@ -258,6 +259,7 @@ class Processor():
         self.global_step = 0
         self.lr = self.arg.base_lr
         self.best_acc = 0
+        self.best_acc5 = 0
         self.best_acc_epoch = 0
 
         if self.arg.half:
@@ -271,6 +273,7 @@ class Processor():
             )
             if self.arg.amp_opt_level != 1:
                 self.print_log('[WARN] nn.DataParallel is not yet supported by amp_opt_level != "O1"')
+            pass
 
         if type(self.arg.device) is list:
             if len(self.arg.device) > 1:
@@ -541,6 +544,10 @@ class Processor():
             del output
             del loss
 
+            # # just for test
+            # if batch_idx > 10:
+            #     break
+
         # statistics of time consumption and loss
         proportion = {
             k: f'{int(round(v * 100 / sum(timer.values()))):02d}%'
@@ -552,7 +559,9 @@ class Processor():
         self.print_log(
             f'\tMean training loss: {mean_loss:.4f} (BS {self.arg.batch_size}: {mean_loss * num_splits:.4f}).')
         self.print_log('\tTime consumption: [Data]{dataloader}, [Network]{model}'.format(**proportion))
-
+        wandb.log({"train_total_loss": mean_loss, "epoch": epoch})
+        wandb.log({f"train_acc_top_1": 100 * acc, "epoch": epoch})
+        wandb.log({"runing_lr": self.lr, "epoch": epoch})
         # PyTorch > 1.2.0: update LR scheduler here with `.step()`
         # and make sure to save the `lr_scheduler.state_dict()` as part of checkpoint
         self.lr_scheduler.step()
@@ -607,10 +616,13 @@ class Processor():
 
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
-            accuracy = self.data_loader[ln].dataset.top_k(score, 1)
+            accuracy = self.data_loader[ln].dataset.top_k_(score, 1)
+            accuracy_top5 = self.data_loader[ln].dataset.top_k_(score, 5)
             if accuracy > self.best_acc:
                 self.best_acc = accuracy
                 self.best_acc_epoch = epoch + 1
+            if accuracy_top5 > self.best_acc5:
+                self.best_acc5 = accuracy_top5
 
             print('Accuracy: ', accuracy, ' model: ', self.arg.work_dir)
             if self.arg.phase == 'train' and not self.arg.debug:
@@ -618,10 +630,14 @@ class Processor():
                 self.val_writer.add_scalar('loss_l1', l1, self.global_step)
                 self.val_writer.add_scalar('acc', accuracy, self.global_step)
 
+            wandb.log({"eval_total_loss": loss, "epoch": epoch})
+            wandb.log({"Eval Best top-1 acc": 100 * self.best_acc, "epoch": epoch})
+            wandb.log({"Eval Best top-5 acc": 100 * self.best_acc5, "epoch": epoch})
+
             score_dict = dict(zip(self.data_loader[ln].dataset.sample_name, score))
             self.print_log(f'\tMean {ln} loss of {len(self.data_loader[ln])} batches: {np.mean(loss_values)}.')
             for k in self.arg.show_topk:
-                self.print_log(f'\tTop {k}: {100 * self.data_loader[ln].dataset.top_k(score, k):.2f}%')
+                self.print_log(f'\tTop {k}: {100 * self.data_loader[ln].dataset.top_k_(score, k):.2f}%')
 
             if save_score:
                 with open('{}/epoch{}_{}_score.pkl'.format(self.arg.work_dir, epoch + 1, ln), 'wb') as f:
@@ -683,6 +699,18 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+def wandb_init(args):
+    wandb.login(key="610ea58ece04cbfb08fe53c2d852fccf1833d910", force=True)
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="action_recognition",
+        # name="ASE_GCN_baseline",
+        name=args.model_saved_name,
+        # track hyperparameters and run metadata
+        config=args
+    )
+
+
 def main():
     parser = get_parser()
 
@@ -700,6 +728,7 @@ def main():
 
     arg = parser.parse_args()
     init_seed(arg.seed)
+    wandb_init(args=arg)
     processor = Processor(arg)
     processor.start()
 

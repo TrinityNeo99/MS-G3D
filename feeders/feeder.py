@@ -1,4 +1,8 @@
+#  Copyright (c) 2024. IPCRC, Lab. Jiangnig Wei
+#  All rights reserved
+
 import sys
+
 sys.path.extend(['../'])
 
 import torch
@@ -88,9 +92,14 @@ class Feeder(Dataset):
 
         return data_numpy, label, index
 
-    def top_k(self, score, top_k):
+    def top_k_(self, score, top_k):
         rank = score.argsort()
         hit_top_k = [l in rank[i, -top_k:] for i, l in enumerate(self.label)]
+        return sum(hit_top_k) * 1.0 / len(hit_top_k)
+
+    def top_k(self, score, top_k, label):
+        rank = score.argsort()
+        hit_top_k = [l in rank[i, -top_k:] for i, l in enumerate(label)]
         return sum(hit_top_k) * 1.0 / len(hit_top_k)
 
 
@@ -186,6 +195,7 @@ def test(data_path, label_path, vid=None, graph=None, is_3d=False):
 
 if __name__ == '__main__':
     import os
+
     os.environ['DISPLAY'] = 'localhost:10.0'
     data_path = "../data/ntu/xview/val_data_joint.npy"
     label_path = "../data/ntu/xview/val_label.pkl"
