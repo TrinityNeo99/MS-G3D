@@ -427,6 +427,7 @@ class MoE_temporal_module(nn.Module):
         elif temporal_merge == False:
             self.residual = lambda x: x
         self.use_zloss = use_zloss
+        self.expert_attention = None
 
     def forward(self, x):
         B, C, T, V = x.size()
@@ -434,6 +435,7 @@ class MoE_temporal_module(nn.Module):
         if self.expert_weights_learnable:
             logit = self.expert_linear(tx)
             expert_weights = self.expert_softmax(logit)
+            self.expert_attention = expert_weights
         else:
             expert_weights = self.expert_weights
         if self.channelDivide:

@@ -239,6 +239,11 @@ def get_parser():
         default=False,
         type=str2bool,
         help='Use sync batch normal')
+    parser.add_argument(
+        '--expert-attention-visualization',
+        default=False,
+        type=str2bool,
+        help='Use sync batch normal')
     return parser
 
 
@@ -247,31 +252,8 @@ class Processor():
 
     def __init__(self, arg):
         self.arg = arg
-        self.save_arg()
-        if arg.phase == 'train':
-            # Added control through the command line
-            arg.train_feeder_args['debug'] = arg.train_feeder_args['debug'] or self.arg.debug
-            logdir = os.path.join(arg.work_dir, 'trainlogs')
-            if not arg.train_feeder_args['debug']:
-                # logdir = arg.model_saved_name
-                # if os.path.isdir(logdir):
-                #     print(f'log_dir {logdir} already exists')
-                #     if arg.assume_yes:
-                #         answer = 'y'
-                #     else:
-                #         answer = input('delete it? [y]/n:')
-                #     if answer.lower() in ('y', ''):
-                #         shutil.rmtree(logdir)
-                #         print('Dir removed:', logdir)
-                #     else:
-                #         print('Dir not removed:', logdir)
-                pass
-
-                self.train_writer = SummaryWriter(os.path.join(logdir, 'train'), 'train')
-                self.val_writer = SummaryWriter(os.path.join(logdir, 'val'), 'val')
-            else:
-                self.train_writer = SummaryWriter(os.path.join(logdir, 'debug'), 'debug')
-
+        if dist.get_rank() == 0:
+            self.save_arg()
         self.load_model()
         self.load_param_groups()
         self.load_optimizer()
@@ -349,9 +331,9 @@ class Processor():
                 state.update(weights)
                 self.model.load_state_dict(state)
 
-        # TODO args
         self.calculate_params_flops(3, self.arg.model_args['num_frame'], self.arg.model_args['num_point'],
-                                    self.arg.model_args['num_person'], Model(**self.arg.model_args).to(local_rank))
+                                    self.arg.model_args['num_person'], Model(**self.arg.model_args).to(local_rank),
+                                    isProfile=False)
         if self.arg.DDP:
             self.model = self.model.to(local_rank)
             self.model = DDP(self.model, device_ids=[local_rank], output_device=local_rank,
@@ -360,7 +342,6 @@ class Processor():
             raise Exception("not DDP")
 
     def calculate_params_flops(self, in_channel, num_frame, num_keypoint, num_person, model, isProfile=False):
-        isProfile = False
         # N, C, T, V, M
         batch_size = 1
         dummy_input = torch.randn(batch_size, in_channel, num_frame, num_keypoint, num_person).to(self.arg.local_rank)
@@ -525,7 +506,6 @@ class Processor():
         self.model.train()
         loader = self.data_loader['train']
         loss_values = []
-        self.train_writer.add_scalar('epoch', epoch + 1, self.global_step)
         self.record_time()
         timer = dict(dataloader=0.001, model=0.001, statistics=0.001)
 
@@ -575,17 +555,13 @@ class Processor():
                 timer['model'] += self.split_time()
 
                 if batch_idx % 10 == 0 and dist.get_rank() == 0:
-                    wandb.log({"loss_step": loss.item})
+                    wandb.log({"train_step_loss": str(loss.item)})
 
                 # Display loss
                 process.set_description(f'(BS {real_batch_size}) loss: {loss.item():.4f}')
 
                 value, predict_label = torch.max(output, 1)
                 acc = torch.mean((predict_label == batch_label).float())
-
-                self.train_writer.add_scalar('acc', acc, self.global_step)
-                self.train_writer.add_scalar('loss', loss.item() * splits, self.global_step)
-                self.train_writer.add_scalar('loss_l1', l1, self.global_step)
 
             #####################################
 
@@ -594,7 +570,6 @@ class Processor():
 
             # statistics
             self.lr = self.optimizer.param_groups[0]['lr']
-            self.train_writer.add_scalar('lr', self.lr, self.global_step)
             timer['statistics'] += self.split_time()
 
             # Delete output/loss after each batch since it may introduce extra mem during scoping
@@ -689,10 +664,6 @@ class Processor():
                 self.best_acc5 = accuracy_top5
 
             print('Accuracy: ', accuracy, ' model: ', self.arg.work_dir)
-            if self.arg.phase == 'train' and not self.arg.debug:
-                self.val_writer.add_scalar('loss', loss, self.global_step)
-                self.val_writer.add_scalar('loss_l1', l1, self.global_step)
-                self.val_writer.add_scalar('acc', accuracy, self.global_step)
 
             if dist.get_rank() == 0:
                 wandb.log({"eval_total_loss": loss, "epoch": epoch})

@@ -24,8 +24,13 @@ from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import MultiStepLR
 # import apex
 import wandb
-
+from thop import profile as tprofile
 from utils import count_params, import_class
+import sys
+from datetime import datetime
+
+sys.path.append("../")
+from Evaluate.evaluate import generate_confusion_matrix, visualization
 
 
 def init_seed(seed):
@@ -42,7 +47,7 @@ def get_parser():
     parser.add_argument(
         '--work-dir',
         type=str,
-        required=True,
+        required=False,
         help='the work folder for storing results')
     parser.add_argument('--model_saved_name', default='')
     parser.add_argument(
@@ -217,6 +222,16 @@ def get_parser():
         type=str2bool,
         default=False,
         help='Debug mode; default false')
+    parser.add_argument(
+        '--SyncBN',
+        type=str2bool,
+        default=False,
+        help='enable sync batch normal')
+    parser.add_argument(
+        '--expert-attention-visualization',
+        default=False,
+        type=str2bool,
+        help='set expert-attention-visualization')
 
     return parser
 
@@ -227,6 +242,13 @@ class Processor():
     def __init__(self, arg):
         self.arg = arg
         self.save_arg()
+        # add timestamp for work_dir
+        if not os.path.exists(arg.work_dir):
+            os.mkdir(arg.work_dir)
+        arg.timestamp = "{0:%Y%m%dT%H-%M-%S/}".format(datetime.now())
+        current_work_dir = os.path.join(arg.work_dir, arg.model_saved_name, arg.timestamp)
+        os.makedirs(current_work_dir)
+        arg.work_dir = current_work_dir
         if arg.phase == 'train':
             # Added control through the command line
             arg.train_feeder_args['debug'] = arg.train_feeder_args['debug'] or self.arg.debug
@@ -298,6 +320,10 @@ class Processor():
         self.loss = nn.CrossEntropyLoss().cuda(output_device)
         self.print_log(f'Model total number of params: {count_params(self.model)}')
 
+        self.calculate_params_flops(3, self.arg.model_args['num_frame'], self.arg.model_args['num_point'],
+                                    self.arg.model_args['num_person'], Model(**self.arg.model_args).to(output_device),
+                                    isProfile=False)
+
         if self.arg.weights:
             try:
                 self.global_step = int(self.arg.weights[:-3].split('-')[-1])
@@ -332,6 +358,33 @@ class Processor():
                     self.print_log('  ' + d)
                 state.update(weights)
                 self.model.load_state_dict(state)
+
+    def calculate_params_flops(self, in_channel, num_frame, num_keypoint, num_person, model, isProfile=False):
+        # N, C, T, V, M
+        batch_size = 1
+        dummy_input = torch.randn(batch_size, in_channel, num_frame, num_keypoint, num_person).to(self.output_device)
+        print("the dummy shape is: ", dummy_input.shape)
+        model.to(self.output_device)
+        if isProfile:
+            warm_up = 10
+            for i in range(warm_up + 1):
+                if i == warm_up:
+                    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], use_cuda=True) as prof:
+                        model(dummy_input)
+                    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+                    prof.export_chrome_trace('./profiles_MoE')
+                else:
+                    out = model(dummy_input)
+        flops, params = tprofile(model, inputs=(dummy_input,))
+        # flops, params = clever_format([flops, params], '%.3f')
+        flops = round(flops / (10 ** 9), 2)
+        params = round(params / (10 ** 6), 2)
+        wandb.log({"model_params": params})
+        wandb.log({"model_flops": flops / batch_size})
+        del model
+        del dummy_input
+        if isProfile:
+            exit(0)
 
     def load_param_groups(self):
         """
@@ -396,8 +449,8 @@ class Processor():
                 dataset=Feeder(**self.arg.train_feeder_args),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
-                # num_workers=self.arg.num_worker,
-                num_workers=0,
+                num_workers=self.arg.num_worker,
+                # num_workers=0,
                 drop_last=True,
                 worker_init_fn=worker_seed_fn)
 
@@ -405,8 +458,8 @@ class Processor():
             dataset=Feeder(**self.arg.test_feeder_args),
             batch_size=self.arg.test_batch_size,
             shuffle=False,
-            # num_workers=self.arg.num_worker,
-            num_workers=0,
+            num_workers=self.arg.num_worker,
+            # num_workers=0,
             drop_last=False,
             worker_init_fn=worker_seed_fn)
 
@@ -614,6 +667,12 @@ class Processor():
                             if x != true[i] and wrong_file is not None:
                                 f_w.write(str(index[i]) + ',' + str(x) + ',' + str(true[i]) + '\n')
 
+                    if self.arg.expert_attention_visualization:
+                        visual_sample_name = self.data_loader[ln].dataset.sample_name[index][0]
+                        visualization(expert_attention=self.model.expert_attention(), upload_wandb=True,
+                                      sample_name=visual_sample_name,
+                                      expert_windows_size=self.arg.model.expert_windows_size)
+
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
             accuracy = self.data_loader[ln].dataset.top_k_(score, 1)
@@ -624,11 +683,12 @@ class Processor():
             if accuracy_top5 > self.best_acc5:
                 self.best_acc5 = accuracy_top5
 
+            predicted_labels = score.argsort()[:, -1]
+            generate_confusion_matrix(predicted_labels, self.data_loader[ln].dataset.label, dataset="badminton-12",
+                                      output_dir=self.arg.work_dir)
+
             print('Accuracy: ', accuracy, ' model: ', self.arg.work_dir)
-            if self.arg.phase == 'train' and not self.arg.debug:
-                self.val_writer.add_scalar('loss', loss, self.global_step)
-                self.val_writer.add_scalar('loss_l1', l1, self.global_step)
-                self.val_writer.add_scalar('acc', accuracy, self.global_step)
+            # visualization(expert_attention=self.model.expert_attention(), epoch=epoch, upload_wandb=True)
 
             wandb.log({"eval_total_loss": loss, "epoch": epoch})
             wandb.log({"Eval Best top-1 acc": 100 * self.best_acc, "epoch": epoch})
@@ -642,7 +702,6 @@ class Processor():
             if save_score:
                 with open('{}/epoch{}_{}_score.pkl'.format(self.arg.work_dir, epoch + 1, ln), 'wb') as f:
                     pickle.dump(score_dict, f)
-
         # Empty cache after evaluation
         torch.cuda.empty_cache()
 
