@@ -1,0 +1,9 @@
+scikit-learn
+wandb
+timm
+einops
+thop
+tensorboardX
+matplotlib
+google
+tqdm
