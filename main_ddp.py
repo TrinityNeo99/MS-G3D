@@ -33,6 +33,7 @@ from ddp_function import distributed_concat, SequentialDistributedSampler
 from thop import profile as tprofile
 
 dist.init_process_group(backend='nccl')
+from datetime import datetime
 
 
 # from torch.profiler import profile, record_function, ProfilerActivity
@@ -669,6 +670,7 @@ class Processor():
                 wandb.log({"eval_total_loss": loss, "epoch": epoch})
                 wandb.log({"Eval Best top-1 acc": 100 * self.best_acc, "epoch": epoch})
                 wandb.log({"Eval Best top-5 acc": 100 * self.best_acc5, "epoch": epoch})
+                wandb.log({"Best Epoch": self.best_acc_epoch})
 
             score_dict = dict(
                 zip(self.data_loader[ln].dataset.sample_name[: len(scores)], scores))
@@ -765,6 +767,13 @@ def main():
         parser.set_defaults(**default_arg)
 
     arg = parser.parse_args()
+    # add timestamp for work_dir
+    if not os.path.exists(arg.work_dir):
+        os.mkdir(arg.work_dir)
+    arg.timestamp = "{0:%Y%m%dT%H-%M-%S/}".format(datetime.now())
+    current_work_dir = os.path.join(arg.work_dir, arg.model_saved_name, arg.timestamp)
+    os.makedirs(current_work_dir)
+    arg.work_dir = current_work_dir
     init_seed(arg.seed + dist.get_rank())
     if dist.get_rank() == 0:
         wandb_init(args=arg)

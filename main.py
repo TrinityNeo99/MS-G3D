@@ -242,13 +242,6 @@ class Processor():
     def __init__(self, arg):
         self.arg = arg
         self.save_arg()
-        # add timestamp for work_dir
-        if not os.path.exists(arg.work_dir):
-            os.mkdir(arg.work_dir)
-        arg.timestamp = "{0:%Y%m%dT%H-%M-%S/}".format(datetime.now())
-        current_work_dir = os.path.join(arg.work_dir, arg.model_saved_name, arg.timestamp)
-        os.makedirs(current_work_dir)
-        arg.work_dir = current_work_dir
         if arg.phase == 'train':
             # Added control through the command line
             arg.train_feeder_args['debug'] = arg.train_feeder_args['debug'] or self.arg.debug
@@ -668,10 +661,11 @@ class Processor():
                                 f_w.write(str(index[i]) + ',' + str(x) + ',' + str(true[i]) + '\n')
 
                     if self.arg.expert_attention_visualization:
-                        visual_sample_name = self.data_loader[ln].dataset.sample_name[index][0]
+                        visual_sample_name = self.data_loader[ln].dataset.sample_name[index.cpu().tolist()[0]]
                         visualization(expert_attention=self.model.expert_attention(), upload_wandb=True,
                                       sample_name=visual_sample_name,
-                                      expert_windows_size=self.arg.model.expert_windows_size)
+                                      expert_windows_size=self.arg.model_args['expert_windows_size'],
+                                      isSaveLayerData=True)
 
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)
@@ -688,11 +682,10 @@ class Processor():
                                       output_dir=self.arg.work_dir)
 
             print('Accuracy: ', accuracy, ' model: ', self.arg.work_dir)
-            # visualization(expert_attention=self.model.expert_attention(), epoch=epoch, upload_wandb=True)
-
             wandb.log({"eval_total_loss": loss, "epoch": epoch})
             wandb.log({"Eval Best top-1 acc": 100 * self.best_acc, "epoch": epoch})
             wandb.log({"Eval Best top-5 acc": 100 * self.best_acc5, "epoch": epoch})
+            wandb.log({"Best Epoch": self.best_acc_epoch})
 
             score_dict = dict(zip(self.data_loader[ln].dataset.sample_name, score))
             self.print_log(f'\tMean {ln} loss of {len(self.data_loader[ln])} batches: {np.mean(loss_values)}.')
@@ -786,6 +779,13 @@ def main():
         parser.set_defaults(**default_arg)
 
     arg = parser.parse_args()
+    # add timestamp for work_dir
+    if not os.path.exists(arg.work_dir):
+        os.mkdir(arg.work_dir)
+    arg.timestamp = "{0:%Y%m%dT%H-%M-%S/}".format(datetime.now())
+    current_work_dir = os.path.join(arg.work_dir, arg.model_saved_name, arg.timestamp)
+    os.makedirs(current_work_dir)
+    arg.work_dir = current_work_dir
     init_seed(arg.seed)
     wandb_init(args=arg)
     processor = Processor(arg)

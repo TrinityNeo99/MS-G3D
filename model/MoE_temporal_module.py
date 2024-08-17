@@ -388,15 +388,15 @@ class TemporalWindowPatchMerging(nn.Module):
 class MoE_temporal_module(nn.Module):
     def __init__(self, in_channels, out_channels, temporal_heads=3, residual=True,
                  dropout=0.1, temporal_merge=False, expert_windows_size=[8, 32], num_frames=256, temporal_depth=2,
-                 expert_weights=[0.5, 0.5], isLearnable=True, channelDivide=False,
+                 expert_weights=[0.5, 0.5, 0.5], isLearnable=True, channelDivide=False,
                  temporal_ape=False, use_zloss=0):
         super().__init__()
         self.channelDivide = channelDivide
         self.expert_weights_learnable = isLearnable
         if len(expert_windows_size) == 1:
             expert_weights = [1.0]
-        assert len(expert_weights) == len(
-            expert_windows_size), "the numbers of expert weights and their windows size are not equal"
+        # assert len(expert_weights) == len(
+        #     expert_windows_size), "the numbers of expert weights and their windows size are not equal"
         if not isLearnable:
             expert_weights = torch.tensor(expert_weights)
             self.register_buffer("expert_weights", expert_weights)
