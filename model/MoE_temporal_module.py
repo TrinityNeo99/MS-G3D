@@ -133,6 +133,8 @@ class TemporalWindowAttention(nn.Module):  # attention block
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
+        # print("the shape of attention is: ", attn.shape)
+        # TODO this attention
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
             self.window_size, self.window_size, -1)  # W,W,nH
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
@@ -150,7 +152,7 @@ class TemporalWindowAttention(nn.Module):  # attention block
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        return x, attn
 
 
 class Mlp(nn.Module):
@@ -232,7 +234,7 @@ class TemporalWindowTransformerBlock(nn.Module):  # transformer block
         x_windows = x_windows.view(-1, self.window_size, C)  # nW*B, window_size, C
 
         # W-MSA/SW-MSA
-        attn_windows = self.attn(x_windows, mask=self.attn_mask)  # nW*B, window_size*window_size, C
+        attn_windows, attention_data = self.attn(x_windows, mask=self.attn_mask)  # nW*B, window_size*window_size, C
 
         # merge windows
         attn_windows = attn_windows.view(-1, self.window_size, C)
@@ -249,7 +251,7 @@ class TemporalWindowTransformerBlock(nn.Module):  # transformer block
         # FFN
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
-        return x
+        return x, attention_data
 
 
 class TemporalWindowTransformerLayer(nn.Module):
@@ -279,13 +281,16 @@ class TemporalWindowTransformerLayer(nn.Module):
             self.downsample = downsample(dim=dim, norm_layer=norm_layer)
         else:
             self.downsample = None
+        self.window_attentions = None
 
     def forward(self, x):
+        self.window_attentions = []
         for blk in self.blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
-                x = blk(x)
+                x, att = blk(x)
+                self.window_attentions.append(att.cpu())
         if self.downsample is not None:
             x = self.downsample(x)
         return x
@@ -389,7 +394,7 @@ class MoE_temporal_module(nn.Module):
     def __init__(self, in_channels, out_channels, temporal_heads=3, residual=True,
                  dropout=0.1, temporal_merge=False, expert_windows_size=[8, 32], num_frames=256, temporal_depth=2,
                  expert_weights=[0.5, 0.5, 0.5], isLearnable=True, channelDivide=False,
-                 temporal_ape=False, use_zloss=0):
+                 temporal_ape=False, use_zloss=0, topK=-1):
         super().__init__()
         self.channelDivide = channelDivide
         self.expert_weights_learnable = isLearnable
@@ -428,6 +433,8 @@ class MoE_temporal_module(nn.Module):
             self.residual = lambda x: x
         self.use_zloss = use_zloss
         self.expert_attention = None
+        self.topK = topK
+        self.window_attention = None
 
     def forward(self, x):
         B, C, T, V = x.size()
@@ -463,8 +470,13 @@ class MoE_temporal_module(nn.Module):
             if self.temporal_merge:
                 expert_weights_i = ((expert_weights[:, 0::2, i] + expert_weights[0, 1::2, i]) / 2).unsqueeze(-1)
                 atx += torch.mul(expert_output, expert_weights_i)
-            else:
+            elif self.topK == -1:
                 atx += torch.mul(expert_output, expert_weights[:, :, i].unsqueeze(-1))
+            elif self.topK != -1:
+                expert_weights_onehot_index = torch.argmax(expert_weights, dim=-1)
+                expert_weights_onehot = torch.zeros_like(expert_weights)
+                expert_weights_onehot[expert_weights_onehot_index] = 1
+                atx += torch.mul(expert_output, expert_weights_onehot[:, :, i].unsqueeze(-1))
         return atx
 
     def T_multi_expert(self, x, B, C, T, V, expert_weights):
@@ -490,6 +502,13 @@ class MoE_temporal_module(nn.Module):
         for i in range(self.num_experts):
             atx[:, :, i::self.num_experts] = expert_weights[i] * self.experts[i](x[:, :, i::self.num_experts])
         return atx
+
+    def get_window_attention(self):
+        self.window_attention = []
+        for i in range(self.num_experts):
+            self.window_attention.append(self.experts[i].trans.window_attentions)
+        print(len(self.window_attention))
+        return self.window_attention
 
 
 if __name__ == '__main__':

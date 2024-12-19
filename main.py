@@ -30,7 +30,7 @@ import sys
 from datetime import datetime
 
 sys.path.append("../")
-from Evaluate.evaluate import generate_confusion_matrix, visualization
+from Evaluate.evaluate import generate_confusion_matrix, visualization, attention_vis
 
 
 def init_seed(seed):
@@ -232,6 +232,11 @@ def get_parser():
         default=False,
         type=str2bool,
         help='set expert-attention-visualization')
+    parser.add_argument(
+        '--window-attention-visualization',
+        default=False,
+        type=str2bool,
+        help='set window-attention-visualization')
 
     return parser
 
@@ -374,6 +379,8 @@ class Processor():
         params = round(params / (10 ** 6), 2)
         wandb.log({"model_params": params})
         wandb.log({"model_flops": flops / batch_size})
+        print({"model_params": params})
+        print({"model_flops": flops / batch_size})
         del model
         del dummy_input
         if isProfile:
@@ -666,6 +673,15 @@ class Processor():
                                       sample_name=visual_sample_name,
                                       expert_windows_size=self.arg.model_args['expert_windows_size'],
                                       isSaveLayerData=True)
+                    if self.arg.window_attention_visualization:
+                        visual_sample_name = self.data_loader[ln].dataset.sample_name[index.cpu().tolist()[0]]
+                        ep1, ep2 = self.model.window_attention()
+                        np.save(f"./attention/{visual_sample_name}_ep1.npy", ep1)
+                        np.save(f"./attention/{visual_sample_name}_ep2.npy", ep2)
+                        print(visual_sample_name)
+                        attention_vis(ep1, ep2, visual_sample_name)
+                    if batch_idx > 50:
+                        break
 
             score = np.concatenate(score_batches)
             loss = np.mean(loss_values)

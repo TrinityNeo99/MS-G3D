@@ -41,6 +41,7 @@ from model.activation import activation_factory
 from model.MoE_temporal_module import MoE_temporal_module as MoE_Trans
 
 torch.autograd.set_detect_anomaly(True)
+from einops import rearrange
 
 
 class MS_G3D(nn.Module):
@@ -267,6 +268,33 @@ class Model(nn.Module):
         layer3['block2'] = self.sgcn3[2].expert_attention[0].cpu()
         expert_attention = {"layer1": layer1, "layer2": layer2, "layer3": layer3}
         return expert_attention
+
+    def window_attention(self):
+        window_attention = self.sgcn1[2].get_window_attention()
+        for e in window_attention:
+            for l in e:
+                # print("window attention shape: ", l.shape)
+                pass
+        ep1 = window_attention[0][0]
+        ep2 = window_attention[1][1]
+
+        ep1 = self.average_joint_attention(ep1)
+        ep2 = self.average_joint_attention(ep2)
+
+        # print(ep1.shape)
+        # print(ep2.shape)
+        ep1 = ep1.numpy()
+        ep2 = ep2.numpy()
+        return ep1, ep2
+
+    def average_joint_attention(self, data):
+        # data  (num, c, ws, ws)
+        joint_num = 17
+        window_num = data.shape[0] // joint_num
+        data = rearrange(data, "(n1 n2) c ws ws1 -> n1 n2 c ws ws1", n1=17, n2=window_num)
+        data = torch.mean(data, dim=0)  # n2 c ws ws1
+        data = torch.mean(data, dim=1)
+        return data
 
 
 if __name__ == "__main__":

@@ -772,7 +772,7 @@ def main():
         os.mkdir(arg.work_dir)
     arg.timestamp = "{0:%Y%m%dT%H-%M-%S/}".format(datetime.now())
     current_work_dir = os.path.join(arg.work_dir, arg.model_saved_name, arg.timestamp)
-    os.makedirs(current_work_dir)
+    os.makedirs(current_work_dir, exist_ok=True)
     arg.work_dir = current_work_dir
     init_seed(arg.seed + dist.get_rank())
     if dist.get_rank() == 0:
